@@ -38,6 +38,14 @@ module ThinkingSphinx::ActiveRecord::DatabaseAdapters
       else
         model.connection.config[:adapter]
       end
+    when "Octopus::Proxy"
+      if %w(mysql mysql2).include?(model.connection.config[:adapter])
+        :mysql
+      elsif model.connection.config[:adapter] == "postgresql"
+        :postgresql
+      else
+        model.connection.config[:adapter]
+      end
     else
       model.connection.class.name
     end
