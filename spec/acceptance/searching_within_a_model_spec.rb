@@ -41,6 +41,14 @@ describe 'Searching within a model', :live => true do
     articles.to_a.should == [article]
   end
 
+  it "allows for searching on distributed indices" do
+    article = Article.create :title => 'Pancakes'
+    index
+
+    articles = Article.search('pancake', :indices => ['article'])
+    articles.to_a.should == [article]
+  end
+
   it "can search on namespaced models" do
     person = Admin::Person.create :name => 'James Bond'
     index
@@ -64,6 +72,12 @@ describe 'Searching within a model', :live => true do
     lambda {
       User.recent.search
     }.should raise_error(ThinkingSphinx::MixedScopesError)
+  end
+
+  it "raises an error if the model has no indices defined" do
+    lambda {
+      Category.search.to_a
+    }.should raise_error(ThinkingSphinx::NoIndicesError)
   end
 end
 

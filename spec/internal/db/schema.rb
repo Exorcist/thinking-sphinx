@@ -17,6 +17,15 @@ ActiveRecord::Schema.define do
     t.timestamps
   end
 
+  create_table(:manufacturers, :force => true) do |t|
+    t.string  :name
+  end
+
+  create_table(:cars, :force => true) do |t|
+    t.integer :manufacturer_id
+    t.string  :name
+  end
+
   create_table(:books, :force => true) do |t|
     t.string  :title
     t.string  :author
@@ -30,6 +39,15 @@ ActiveRecord::Schema.define do
   create_table(:books_genres, :force => true, :id => false) do |t|
     t.integer :book_id
     t.integer :genre_id
+  end
+
+  create_table(:categories, :force => true) do |t|
+    t.string :name
+  end
+
+  create_table(:categorisations, :force => true) do |t|
+    t.integer :category_id
+    t.integer :product_id
   end
 
   create_table(:cities, :force => true) do |t|

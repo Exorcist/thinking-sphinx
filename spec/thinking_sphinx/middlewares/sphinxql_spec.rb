@@ -6,10 +6,17 @@ module ActiveRecord
   class Base; end
 end
 
+class SphinxQLSubclass
+end
+
+require 'active_support/core_ext/module/attribute_accessors'
+require 'active_support/core_ext/module/delegation'
 require 'active_support/core_ext/object/blank'
 require 'active_support/core_ext/string/inflections'
 require 'thinking_sphinx/middlewares/middleware'
 require 'thinking_sphinx/middlewares/sphinxql'
+require 'thinking_sphinx/errors'
+require 'thinking_sphinx/sphinxql'
 
 describe ThinkingSphinx::Middlewares::SphinxQL do
   let(:app)           { double('app', :call => true) }
@@ -19,7 +26,7 @@ describe ThinkingSphinx::Middlewares::SphinxQL do
     :offset => 0, :per_page => 5) }
   let(:index_set)     { [double(:name => 'article_core', :options => {})] }
   let(:sphinx_sql)    { double('sphinx_sql', :from => true, :offset => true,
-    :limit => true, :where => true, :matching => true) }
+    :limit => true, :where => true, :matching => true, :values => true) }
   let(:query)         { double('query') }
   let(:configuration) { double('configuration', :settings => {}) }
 
@@ -49,11 +56,20 @@ describe ThinkingSphinx::Middlewares::SphinxQL do
         :name => 'User')
       search.options[:classes] = [klass]
       search.options[:indices] = ['user_core']
+      index_set.first.stub :reference => :user
 
       ThinkingSphinx::IndexSet.should_receive(:new).
         with([klass], ['user_core']).and_return(index_set)
 
       middleware.call [context]
+    end
+
+    it "raises an exception if there's no matching indices" do
+      index_set.clear
+
+      expect {
+        middleware.call [context]
+      }.to raise_error(ThinkingSphinx::NoIndicesError)
     end
 
     it "generates a Sphinx query from the provided keyword and conditions" do
@@ -83,6 +99,30 @@ describe ThinkingSphinx::Middlewares::SphinxQL do
       middleware.call [context]
     end
 
+    it "doesn't append a field condition by default" do
+      ThinkingSphinx::Search::Query.should_receive(:new) do |query, conditions, star|
+        conditions[:sphinx_internal_class_name].should be_nil
+        query
+      end
+
+      middleware.call [context]
+    end
+
+    it "doesn't append a field condition if all classes match index references" do
+      model = double('model', :connection => double,
+        :ancestors => [ActiveRecord::Base], :name => 'Animal')
+      index_set.first.stub :reference => :animal
+
+      search.options[:classes] = [model]
+
+      ThinkingSphinx::Search::Query.should_receive(:new) do |query, conditions, star|
+        conditions[:sphinx_internal_class_name].should be_nil
+        query
+      end
+
+      middleware.call [context]
+    end
+
     it "appends field conditions for the class when searching on subclasses" do
       db_connection = double('db connection', :select_values => [],
         :schema_cache => double('cache', :table_exists? => false))
@@ -98,6 +138,7 @@ describe ThinkingSphinx::Middlewares::SphinxQL do
       end
       submodel.stub :connection => db_connection, :column_names => ['type'],
         :descendants => []
+      index_set.first.stub :reference => :cat
 
       search.options[:classes] = [submodel]
 
@@ -123,6 +164,7 @@ describe ThinkingSphinx::Middlewares::SphinxQL do
       end
       submodel.stub :connection => db_connection, :column_names => ['type'],
         :descendants => []
+      index_set.first.stub :reference => :"animals/cat"
 
       search.options[:classes] = [submodel]
 
@@ -136,6 +178,7 @@ describe ThinkingSphinx::Middlewares::SphinxQL do
     it "does not query the database for subclasses if :skip_sti is set to true" do
       model = double('model', :connection => double,
         :ancestors => [ActiveRecord::Base], :name => 'Animal')
+      index_set.first.stub :reference => :animal
 
       search.options[:classes]  = [model]
       search.options[:skip_sti] = true
@@ -143,6 +186,28 @@ describe ThinkingSphinx::Middlewares::SphinxQL do
       model.connection.should_not_receive(:select_values)
 
       middleware.call [context]
+    end
+
+    it "ignores blank subclasses" do
+      db_connection = double('db connection', :select_values => [''],
+        :schema_cache => double('cache', :table_exists? => false))
+      supermodel = Class.new(ActiveRecord::Base) do
+        def self.name; 'Cat'; end
+        def self.inheritance_column; 'type'; end
+      end
+      supermodel.stub :connection => db_connection, :column_names => ['type']
+      submodel   = Class.new(supermodel) do
+        def self.name; 'Lion'; end
+        def self.inheritance_column; 'type'; end
+        def self.table_name; 'cats'; end
+      end
+      submodel.stub :connection => db_connection, :column_names => ['type'],
+        :descendants => []
+      index_set.first.stub :reference => :cat
+
+      search.options[:classes] = [submodel]
+
+      expect { middleware.call [context] }.to_not raise_error
     end
 
     it "filters out deleted values by default" do
@@ -257,6 +322,22 @@ describe ThinkingSphinx::Middlewares::SphinxQL do
 
       sphinx_sql.should_receive(:values).with('foo as bar').
         and_return(sphinx_sql)
+
+      middleware.call [context]
+    end
+
+    it "adds the provided group-best count" do
+      search.options[:group_best] = 5
+
+      sphinx_sql.should_receive(:group_best).with(5).and_return(sphinx_sql)
+
+      middleware.call [context]
+    end
+
+    it "adds the provided having clause" do
+      search.options[:having] = 'foo > 1'
+
+      sphinx_sql.should_receive(:having).with('foo > 1').and_return(sphinx_sql)
 
       middleware.call [context]
     end

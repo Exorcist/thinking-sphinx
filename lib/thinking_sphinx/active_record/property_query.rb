@@ -4,24 +4,34 @@ class ThinkingSphinx::ActiveRecord::PropertyQuery
   end
 
   def to_s
-    identifier = [type, property.name].compact.join(' ')
-    queries    = []
-    if column.string?
-      queries << column.__name.strip.gsub(/\n/, "\\\n")
-    else
-      queries << to_sql
-      queries << range_sql if ranged?
+    if unsafe_habtm_column?
+      raise <<-MESSAGE
+Source queries cannot be used with HABTM joins if they use anything beyond the
+primary key.
+      MESSAGE
     end
 
-    "#{identifier} from #{source_type}; #{queries.join('; ')}"
+    if safe_habtm_column?
+      ThinkingSphinx::ActiveRecord::SimpleManyQuery.new(
+        property, source, type
+      ).to_s
+    else
+      "#{identifier} from #{source_type}; #{queries.join('; ')}"
+    end
   end
 
   private
 
   attr_reader :property, :source, :type
 
+  delegate :unscoped, :to => :base_association_class, :prefix => true
+
   def base_association
     reflections.first
+  end
+
+  def base_association_class
+    base_association.klass
   end
 
   def column
@@ -34,17 +44,8 @@ class ThinkingSphinx::ActiveRecord::PropertyQuery
     [reflection.through_reflection, reflection.source_reflection]
   end
 
-  def reflections
-    @reflections ||= begin
-      base = source.model
-
-      column.__stack.collect { |key|
-        reflection = base.reflections[key]
-        base       = reflection.klass
-
-        extend_reflection reflection
-      }.flatten
-    end
+  def identifier
+    [type, property.name].compact.join(' ')
   end
 
   def joins
@@ -59,17 +60,31 @@ class ThinkingSphinx::ActiveRecord::PropertyQuery
     end
   end
 
+  def macros
+    reflections.collect &:macro
+  end
+
   def offset
     "* #{ThinkingSphinx::Configuration.instance.indices.count} + #{source.offset}"
   end
 
+  def queries
+    queries    = []
+    if column.string?
+      queries << column.__name.strip.gsub(/\n/, "\\\n")
+    else
+      queries << to_sql
+      queries << range_sql if ranged?
+    end
+    queries
+  end
+
   def quoted_foreign_key
-    quote_with_table base_association.klass.table_name,
-      base_association.foreign_key
+    quote_with_table(base_association_class.table_name, base_association.foreign_key)
   end
 
   def quoted_primary_key
-    quote_with_table reflections.last.klass.table_name, column.__name
+    quote_with_table(reflections.last.klass.table_name, column.__name)
   end
 
   def quote_with_table(table, column)
@@ -85,8 +100,26 @@ class ThinkingSphinx::ActiveRecord::PropertyQuery
   end
 
   def range_sql
-    base_association.klass.unscoped.
-      select("MIN(#{quoted_foreign_key}), MAX(#{quoted_foreign_key})").to_sql
+    base_association_class_unscoped.select(
+      "MIN(#{quoted_foreign_key}), MAX(#{quoted_foreign_key})"
+    ).to_sql
+  end
+
+  def reflections
+    @reflections ||= begin
+      base = source.model
+
+      column.__stack.collect { |key|
+        reflection = base.reflections[key]
+        base = reflection.klass
+
+        extend_reflection reflection
+      }.flatten
+    end
+  end
+
+  def safe_habtm_column?
+    macros == [:has_and_belongs_to_many] && column.__name == :id
   end
 
   def source_type
@@ -96,17 +129,18 @@ class ThinkingSphinx::ActiveRecord::PropertyQuery
   def to_sql
     raise "Could not determine SQL for MVA" if reflections.empty?
 
-    relation = base_association.klass.unscoped
-    relation = relation.joins joins unless joins.blank?
-    relation = relation.select "#{quoted_foreign_key} #{offset} AS #{quote_column('id')}, #{quoted_primary_key} AS #{quote_column(property.name)}"
-
-    if ranged?
-      relation = relation.where("#{quoted_foreign_key} >= $start")
-      relation = relation.where("#{quoted_foreign_key} <= $end")
-    end
-
+    relation = base_association_class_unscoped.select("#{quoted_foreign_key} #{offset} AS #{quote_column('id')}, #{quoted_primary_key} AS #{quote_column(property.name)}")
+    relation = relation.joins(joins) if joins.present?
+    relation = relation.where("#{quoted_foreign_key} BETWEEN $start AND $end") if ranged?
+    relation = relation.where("#{quoted_foreign_key} IS NOT NULL")
     relation = relation.order("#{quoted_foreign_key} ASC") if type.nil?
 
     relation.to_sql
+  end
+
+  def unsafe_habtm_column?
+    macros.include?(:has_and_belongs_to_many) && (
+      macros.length > 1 || column.__name != :id
+    )
   end
 end

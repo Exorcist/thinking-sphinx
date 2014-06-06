@@ -7,8 +7,6 @@ module ThinkingSphinx::ActiveRecord::Base
     after_update  ThinkingSphinx::ActiveRecord::Callbacks::UpdateCallbacks
     after_commit  ThinkingSphinx::ActiveRecord::Callbacks::DeltaCallbacks
 
-    after_save    ThinkingSphinx::RealTime::Callbacks::RealTimeCallbacks
-
     ::ActiveRecord::Associations::CollectionProxy.send :include,
       ThinkingSphinx::ActiveRecord::AssociationProxy
   end
@@ -52,7 +50,9 @@ module ThinkingSphinx::ActiveRecord::Base
           'You cannot search with Sphinx through ActiveRecord scopes'
       end
 
-      merger.merge! nil, :classes => [self]
+      result = merger.merge! nil, :classes => [self]
+      result.populate if result.options[:populate]
+      result
     end
   end
 end

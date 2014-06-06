@@ -30,7 +30,7 @@ describe ThinkingSphinx::ActiveRecord::DatabaseAdapters::PostgreSQLAdapter do
 
     it "converts to bigint unix timestamps" do
       ThinkingSphinx::Configuration.instance.settings['64bit_timestamps'] = true
-      
+
       adapter.cast_to_timestamp('created_at').
         should == 'extract(epoch from created_at)::bigint'
     end
@@ -49,10 +49,16 @@ describe ThinkingSphinx::ActiveRecord::DatabaseAdapters::PostgreSQLAdapter do
     end
   end
 
+  describe '#convert_blank' do
+    it "translates arguments to a COALESCE NULLIF SQL call" do
+      adapter.convert_blank('id', 5).should == "COALESCE(NULLIF(id, ''), 5)"
+    end
+  end
+
   describe '#group_concatenate' do
     it "group concatenates the clause with the given separator" do
       adapter.group_concatenate('foo', ',').
-        should == "array_to_string(array_agg(foo), ',')"
+        should == "array_to_string(array_agg(DISTINCT foo), ',')"
     end
   end
 end

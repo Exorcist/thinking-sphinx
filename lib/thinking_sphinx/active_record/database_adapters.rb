@@ -1,63 +1,62 @@
 module ThinkingSphinx::ActiveRecord::DatabaseAdapters
-  def self.adapter_for(model)
-    return default.new(model) unless default.nil?
+  class << self
+    attr_accessor :default
 
-    adapter = adapter_type_for(model)
-    klass   = case adapter
-    when :mysql
-      ThinkingSphinx::ActiveRecord::DatabaseAdapters::MySQLAdapter
-    when :postgresql
-      ThinkingSphinx::ActiveRecord::DatabaseAdapters::PostgreSQLAdapter
-    else
-      raise "Invalid Database Adapter '#{adapter}': Thinking Sphinx only supports MySQL and PostgreSQL."
+    def adapter_for(model)
+      return default.new(model) if default
+
+      adapter = adapter_type_for(model)
+      klass   = case adapter
+      when :mysql
+        MySQLAdapter
+      when :postgresql
+        PostgreSQLAdapter
+      else
+        raise "Invalid Database Adapter '#{adapter}': Thinking Sphinx only supports MySQL and PostgreSQL."
+      end
+
+      klass.new model
     end
 
-    klass.new model
-  end
-
-  def self.adapter_type_for(model)
-    case model.connection.class.name
-    when "ActiveRecord::ConnectionAdapters::MysqlAdapter",
-         "ActiveRecord::ConnectionAdapters::Mysql2Adapter"
-      :mysql
-    when "ActiveRecord::ConnectionAdapters::PostgreSQLAdapter"
-      :postgresql
-    when "ActiveRecord::ConnectionAdapters::JdbcAdapter"
-      case model.connection.config[:adapter]
-      when "jdbcmysql"
+    def adapter_type_for(model)
+      class_name = model.connection.class.name
+      case class_name.split('::').last
+      when 'MysqlAdapter', 'Mysql2Adapter'
         :mysql
-      when "jdbcpostgresql"
+      when 'PostgreSQLAdapter'
         :postgresql
-      when "jdbc"
-        match = /^jdbc:(?<adapter>mysql|postgresql):\/\//.match(model.connection.config[:url])
-        if match
-          match[:adapter].to_sym
+      when 'JdbcAdapter'
+        adapter_type_for_jdbc(model)
+      when "Octopus::Proxy"
+        if %w(mysql mysql2).include?(model.connection.config[:adapter])
+          :mysql
+        elsif model.connection.config[:adapter] == "postgresql"
+          :postgresql
         else
           model.connection.config[:adapter]
         end
       else
-        model.connection.config[:adapter]
+        class_name
       end
-    when "Octopus::Proxy"
-      if %w(mysql mysql2).include?(model.connection.config[:adapter])
-        :mysql
-      elsif model.connection.config[:adapter] == "postgresql"
-        :postgresql
-      else
-        model.connection.config[:adapter]
-      end
-    else
-      model.connection.class.name
     end
-  end
 
-  @default = nil
-  def self.default
-    @default
-  end
+    def adapter_type_for_jdbc(model)
+      case adapter = model.connection.config[:adapter]
+      when 'jdbcmysql'
+        :mysql
+      when 'jdbcpostgresql'
+        :postgresql
+      when 'jdbc'
+        adapter_type_for_jdbc_plain(adapter, model.connection.config[:url])
+      else adapter
+      end
+    end
 
-  def self.default=(default)
-    @default = default
+    def adapter_type_for_jdbc_plain(adapter, url)
+      return adapter unless match = /^jdbc:(?<adapter>mysql|postgresql):\/\//.match(url)
+
+      match[:adapter].to_sym
+    end
   end
 end
 

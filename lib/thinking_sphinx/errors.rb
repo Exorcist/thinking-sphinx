@@ -9,6 +9,10 @@ class ThinkingSphinx::SphinxError < StandardError
       replacement = ThinkingSphinx::SyntaxError.new(error.message)
     when /query error/
       replacement = ThinkingSphinx::QueryError.new(error.message)
+    when /Can't connect to MySQL server/, /Communications link failure/
+      replacement = ThinkingSphinx::ConnectionError.new(
+        "Error connecting to Sphinx via the MySQL protocol. #{error.message}"
+      )
     else
       replacement = new(error.message)
     end
@@ -17,6 +21,9 @@ class ThinkingSphinx::SphinxError < StandardError
     replacement.statement = error.statement if error.respond_to?(:statement)
     replacement
   end
+end
+
+class ThinkingSphinx::ConnectionError < ThinkingSphinx::SphinxError
 end
 
 class ThinkingSphinx::QueryError < ThinkingSphinx::SphinxError
@@ -33,4 +40,10 @@ class ThinkingSphinx::QueryExecutionError < StandardError
 end
 
 class ThinkingSphinx::MixedScopesError < StandardError
+end
+
+class ThinkingSphinx::NoIndicesError < StandardError
+end
+
+class ThinkingSphinx::MissingColumnError < StandardError
 end

@@ -21,8 +21,16 @@ class ThinkingSphinx::ActiveRecord::DatabaseAdapters::MySQLAdapter <
     "IFNULL(#{clause}, #{default})"
   end
 
+  def convert_blank(clause, default = '')
+    "COALESCE(NULLIF(#{clause}, ''), #{default})"
+  end
+
   def group_concatenate(clause, separator = ' ')
-    "GROUP_CONCAT(#{clause} SEPARATOR '#{separator}')"
+    "GROUP_CONCAT(DISTINCT #{clause} SEPARATOR '#{separator}')"
+  end
+
+  def time_zone_query_pre
+    ["SET TIME_ZONE = '+0:00'"]
   end
 
   def utf8_query_pre

@@ -37,8 +37,7 @@ class ThinkingSphinx::FacetSearch
 
     batch = ThinkingSphinx::BatchedSearch.new
     facets.each do |facet|
-      search = ThinkingSphinx::Search.new query, options_for(facet)
-      batch.searches << search
+      batch.searches << ThinkingSphinx::Search.new(query, options_for(facet))
     end
 
     batch.populate ThinkingSphinx::Middlewares::RAW_ONLY
@@ -61,43 +60,55 @@ class ThinkingSphinx::FacetSearch
   private
 
   def facets
-    @facets ||= begin
-      properties = indices.collect(&:facets).flatten
+    @facets ||= properties.group_by(&:name).collect { |name, matches|
+      ThinkingSphinx::Facet.new name, matches
+    }
+  end
+
+  def properties
+    properties = indices.collect(&:facets).flatten
+    if options[:facets].present?
       properties = properties.select { |property|
         options[:facets].include? property.name.to_sym
-      } unless options[:facets].nil? || options[:facets].empty?
-
-      properties.group_by(&:name).collect { |name, matches|
-        ThinkingSphinx::Facet.new name, matches
       }
     end
+    properties
   end
 
   def index_names_for(*facets)
-    indices.select { |index|
-      facet_names = index.facets.collect(&:name)
-      facets.all? { |facet|
-        facet_names.include?(facet.name)
-      }
-    }.collect &:name
+    facet_names(
+      indices.select do |index|
+        facets.all? { |facet| facet_names(index.facets).include?(facet.name) }
+      end
+    )
+  end
+
+  def facet_names(facets)
+    facets.collect(&:name)
   end
 
   def indices
-    @indices ||= ThinkingSphinx::IndexSet.new options[:classes],
-      options[:indices]
+    @indices ||= ThinkingSphinx::IndexSet.new options[:classes], options[:indices]
   end
 
   def max_matches
     ThinkingSphinx::Configuration.instance.settings['max_matches'] || 1000
   end
 
+  def limit
+    limit = options[:limit] || options[:per_page] || max_matches
+  end
+
   def options_for(facet)
     options.merge(
-      :select      => '*, @groupby, @count',
+      :select      => [(options[:select] || '*'),
+        "#{ThinkingSphinx::SphinxQL.group_by} as sphinx_internal_group",
+        "#{ThinkingSphinx::SphinxQL.count} as sphinx_internal_count"
+      ].join(', '),
       :group_by    => facet.name,
       :indices     => index_names_for(facet),
       :max_matches => max_matches,
-      :limit       => max_matches
+      :limit       => limit
     )
   end
 

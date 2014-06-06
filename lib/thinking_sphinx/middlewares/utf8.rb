@@ -5,19 +5,23 @@ class ThinkingSphinx::Middlewares::UTF8 <
     contexts.each do |context|
       context[:results].each { |row| update_row row }
       update_row context[:meta]
-    end
+    end unless encoded?
 
     app.call contexts
   end
 
   private
 
+  def encoded?
+    ThinkingSphinx::Configuration.instance.settings['utf8'].nil? ||
+    ThinkingSphinx::Configuration.instance.settings['utf8']
+  end
+
   def update_row(row)
     row.each do |key, value|
       next unless value.is_a?(String)
 
-      value.encode!("ISO-8859-1")
-      row[key] = value.force_encoding("UTF-8")
+      row[key] = ThinkingSphinx::UTF8.encode value
     end
   end
 end

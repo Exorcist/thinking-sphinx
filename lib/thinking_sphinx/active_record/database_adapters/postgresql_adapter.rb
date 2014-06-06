@@ -27,7 +27,15 @@ class ThinkingSphinx::ActiveRecord::DatabaseAdapters::PostgreSQLAdapter <
     "COALESCE(#{clause}, #{default})"
   end
 
+  def convert_blank(clause, default = '')
+    "COALESCE(NULLIF(#{clause}, ''), #{default})"
+  end
+
   def group_concatenate(clause, separator = ' ')
-    "array_to_string(array_agg(#{clause}), '#{separator}')"
+    "array_to_string(array_agg(DISTINCT #{clause}), '#{separator}')"
+  end
+
+  def time_zone_query_pre
+    ['SET TIME ZONE UTC']
   end
 end
