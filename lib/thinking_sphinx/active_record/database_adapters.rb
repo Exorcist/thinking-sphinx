@@ -27,7 +27,7 @@ module ThinkingSphinx::ActiveRecord::DatabaseAdapters
         :postgresql
       when 'JdbcAdapter'
         adapter_type_for_jdbc(model)
-      when "Octopus::Proxy"
+      when "Proxy"
         if %w(mysql mysql2).include?(model.connection.config[:adapter])
           :mysql
         elsif model.connection.config[:adapter] == "postgresql"
